@@ -2,7 +2,8 @@ import os
 import io
 import requests
 import PyPDF2
-from google.genai import Client # Import Client directly
+import google.generativeai as genai
+from google.generativeai import GenerativeModel
 from groq import Groq
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -16,28 +17,40 @@ from dotenv import load_dotenv
 # --- MongoDB Specific Imports ---
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
-import certifi # Import certifi
+import certifi
 ca = certifi.where()
 
 # --- LangChain Specific Imports ---
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_core.embeddings import Embeddings # Import Embeddings type hint
-
+from langchain_core.embeddings import Embeddings
 
 load_dotenv()
+os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_KEY", "")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 GEMINI_API_KEY = os.getenv("GEMINI_KEY")
-GROQ_API_KEY = os.getenv("GROQ_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Initialize Gemini SDK
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        logger.info("Gemini SDK configured successfully.")
+    except Exception as e:
+        logger.error(f"Failed to configure Gemini SDK: {e}. Gemini services will not be available.", exc_info=True)
+        genai_client = None
+else:
+    logger.error("GEMINI_KEY environment variable not set. Gemini services will not be available.")
+    genai_client = None
 
 # --- MongoDB Configuration ---
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB_NAME = "rag_db"
 MONGO_COLLECTION_NAME = "pdf_chunks"
-MONGO_VECTOR_INDEX_NAME = "vector_index"
+MONGO_VECTOR_INDEX_NAME = "default"
 
 EMBEDDING_DIMENSION = 3072
 
@@ -56,42 +69,17 @@ app = FastAPI(
 )
 
 # --- Initialize External Clients ---
-genai_client = None
-embeddings_model = None # Initialize to None
-
-if GEMINI_API_KEY:
-    try:
-        # --- MODIFIED: Use the new Client class from google.genai ---
-        # The Client typically picks up the API key from GEMINI_API_KEY or GOOGLE_API_KEY env var
-        # Or you can pass it directly: genai_client = Client(api_key=GEMINI_API_KEY)
-        genai_client = Client()
-        logger.info("Gemini API client initialized.")
-
-        # For embeddings, you still call embed_content_async on the client or directly with the model string
-        # The new SDK's structure is more unified.
-        # We'll use the client for both LLM and embedding calls now.
-        logger.info(f"Gemini embedding model '{GEMINI_EMBEDDING_MODEL}' will be used via the client.")
-
-    except Exception as e:
-        logger.error(f"Failed to initialize Gemini API client: {e}. Gemini services will not be available.", exc_info=True)
-        genai_client = None
-else:
-    logger.error("GEMINI_KEY environment variable not set. Gemini services will not be available.")
-
-# Initialize LangChain Google Generative AI Embeddings
-embeddings_model: Embeddings = None # Type hint for clarity
+genai_client = None  # Not needed, as we use genai.GenerativeModel directly
+embeddings_model: Embeddings = None
 if GEMINI_API_KEY:
     try:
         embeddings_model = GoogleGenerativeAIEmbeddings(
             model=GEMINI_EMBEDDING_MODEL,
-            google_api_key=GEMINI_API_KEY, # Pass API key explicitly for LangChain
+            google_api_key=GEMINI_API_KEY,
         )
         logger.info(f"LangChain GoogleGenerativeAIEmbeddings initialized with model: {GEMINI_EMBEDDING_MODEL}")
     except Exception as e:
         logger.error(f"Failed to initialize LangChain GoogleGenerativeAIEmbeddings: {e}. Embedding services will not be available.", exc_info=True)
-
-
-
 
 mongo_client = None
 mongo_collection = None
@@ -122,7 +110,7 @@ if GROQ_API_KEY:
     except Exception as e:
         logger.warning(f"Failed to initialize Groq client: {e}. Groq LLM will not be available.")
 
-# --- Pydantic Models (same) ---
+# --- Pydantic Models ---
 class HackRXRequest(BaseModel):
     documents: str = Field(..., description="URL of the PDF document.")
     questions: List[str] = Field(..., description="List of questions to answer.")
@@ -130,7 +118,7 @@ class HackRXRequest(BaseModel):
 class HackRXResponse(BaseModel):
     answers: List[str]
 
-# --- Core Helper Functions (Mostly same, but embedding generation updated) ---
+# --- Core Helper Functions ---
 async def download_pdf(url: str) -> bytes:
     """Downloads a PDF from a given URL and returns its content as bytes."""
     try:
@@ -172,7 +160,7 @@ async def extract_text_from_pdf(pdf_content: bytes) -> str:
 
     except PyPDF2.errors.PdfReadError as e:
         logger.error(f"Error reading PDF content (PyPDF2): {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid or corrupted PDF content: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid or corrupted PDF content:{e}")
     except Exception as e:
         logger.error(f"An unexpected error occurred during PDF text extraction: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error during PDF processing: {e}")
@@ -209,7 +197,7 @@ async def generate_embeddings(texts: List[str]) -> List[List[float]]:
     try:
         embeddings = await embeddings_model.aembed_documents(
             filtered_texts,
-            task_type="RETRIEVAL_DOCUMENT" # Specify task type for document chunks
+            task_type="RETRIEVAL_DOCUMENT"
         )
         logger.info(f"Successfully generated {len(embeddings)} embeddings in total using LangChain.")
         if embeddings and len(embeddings[0]) != EMBEDDING_DIMENSION:
@@ -263,11 +251,10 @@ async def query_mongodb_and_rag(collection, question: str, llm_client_type: str 
     """
     if collection is None:
         raise HTTPException(status_code=500, detail="MongoDB collection is not initialized or usable.")
-    if embeddings_model is None: # Use the LangChain embedding model
+    if embeddings_model is None:
         raise HTTPException(status_code=500, detail="LangChain GoogleGenerativeAIEmbeddings is not initialized. Cannot generate query embedding.")
-
-    if llm_client_type == "gemini" and genai_client is None:
-        raise HTTPException(status_code=500, detail="Gemini API client not initialized for Gemini LLM. Cannot proceed with Gemini.")
+    if llm_client_type == "gemini" and not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_KEY is not set for Gemini LLM.")
     elif llm_client_type == "groq" and groq_client is None:
         raise HTTPException(status_code=500, detail="Groq client not initialized for Groq LLM. Cannot proceed with Groq.")
 
@@ -276,34 +263,37 @@ async def query_mongodb_and_rag(collection, question: str, llm_client_type: str 
         try:
             query_embedding = await embeddings_model.aembed_query(
                 question,
-                task_type="RETRIEVAL_QUERY" # Specify task type for the query
+                task_type="RETRIEVAL_QUERY"
             )
         except Exception as e:
-             logger.error(f"Error calling LangChain embed_query for query: {e}", exc_info=True)
-             raise ValueError(f"LangChain GoogleGenerativeAIEmbeddings query call failed: {e}")
-
+            logger.error(f"Error calling LangChain embed_query for query: {e}", exc_info=True)
+            raise ValueError(f"LangChain GoogleGenerativeAIEmbeddings query call failed: {e}")
 
         # 2. Query MongoDB using Atlas Vector Search aggregation pipeline
         atlas_vector_search_pipeline = [
             {
                 "$vectorSearch": {
                     "queryVector": query_embedding,
-                    "path": "embedding",  # The field in your documents containing the embeddings
-                    "numCandidates": top_k * 10, # Number of candidates to consider for ANN search
-                    "limit": top_k,       # Number of results to return
-                    "index": MONGO_VECTOR_INDEX_NAME # The name of your Atlas Vector Search index
+                    "path": "embedding",
+                    "numCandidates": top_k * 40,
+                    "limit": top_k,
+                    "index": MONGO_VECTOR_INDEX_NAME
                 }
             },
             {
                 "$project": {
                     "text_chunk": 1,
                     "_id": 0,
-                    "score": { "$meta": "vectorSearchScore" } # Get the relevance score
+                    "score": { "$meta": "vectorSearchScore" }
                 }
             }
         ]
 
+        # logger.info(f"vector search:{atlas_vector_search_pipeline}")
+
         query_results = list(collection.aggregate(atlas_vector_search_pipeline))
+
+        logger.info(query_results)
 
         context_chunks = [result['text_chunk'] for result in query_results if 'text_chunk' in result]
 
@@ -329,14 +319,10 @@ async def query_mongodb_and_rag(collection, question: str, llm_client_type: str 
 
         # 4. Call the chosen LLM (Gemini or Groq)
         if llm_client_type == "gemini":
-            # For LLM generation, you create a model instance from the GenerativeModel class
-            # Ensure google.genai is configured or API key is passed directly if needed
-            if not GEMINI_API_KEY: # Add check for API key
+            if not GEMINI_API_KEY:
                 raise HTTPException(status_code=500, detail="GEMINI_KEY is not set for Gemini LLM.")
-
-            # Corrected line: Use GenerativeModel directly (assuming it's imported)
-            model = GenerativeModel(GEMINI_LLM_MODEL)
             try:
+                model = genai.GenerativeModel(GEMINI_LLM_MODEL)
                 response = await model.generate_content_async(prompt)
                 answer = response.text
                 logger.info(f"Gemini LLM answered question: '{question}'")
@@ -382,13 +368,12 @@ async def hackrx_run_endpoint(request: HackRXRequest):
     API endpoint to process a PDF from a blob link, generate embeddings,
     and answer a list of questions using RAG, matching HackRX specifications.
     """
-    if genai_client is None and groq_client is None:
+    if not GEMINI_API_KEY and groq_client is None:
         raise HTTPException(status_code=500, detail="Neither Gemini nor Groq LLM client is initialized. Cannot answer questions.")
     if mongo_collection is None:
         raise HTTPException(status_code=500, detail="MongoDB client or collection failed to initialize. Check your MONGO_URI and Atlas setup.")
-    if genai_client is None: # Now we check the main client for embeddings
-        raise HTTPException(status_code=500, detail="Gemini client is not initialized. Cannot generate embeddings.")
-
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API key is not set. Cannot generate embeddings.")
 
     logger.info(f"Received request to process PDF from: {request.documents}")
     logger.info(f"Questions received: {request.questions}")
@@ -422,6 +407,7 @@ async def hackrx_run_endpoint(request: HackRXRequest):
             answers.append(answer)
 
         logger.info("Successfully processed PDF and answered all questions.")
+        logger.info(answers)
         return HackRXResponse(answers=answers)
 
     except HTTPException as e:
