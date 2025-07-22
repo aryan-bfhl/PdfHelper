@@ -6,6 +6,5 @@ google-genai==1.18.0
 langchain-core==0.3.70
 langchain-google-genai==2.1.8
 python-dotenv==1.0.1
-pydantic<2 
 pymongo[srv]==4.6.3
 certifi==2024.2.2
