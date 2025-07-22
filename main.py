@@ -2,7 +2,8 @@ import os
 import io
 import requests
 import PyPDF2
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from google.generativeai import GenerativeModel
 from groq import Groq
 from fastapi import FastAPI, HTTPException
@@ -55,7 +56,7 @@ MONGO_VECTOR_INDEX_NAME = "default"
 EMBEDDING_DIMENSION = 3072
 
 GEMINI_LLM_MODEL = "gemini-1.5-flash"
-GEMINI_EMBEDDING_MODEL = "gemini-embedding-001"
+GEMINI_EMBEDDING_MODEL = "models/embedding-001"
 GROQ_LLM_MODEL = "llama3-8b-8192"
 
 CHUNK_SIZE = 1000
@@ -102,6 +103,7 @@ if MONGO_URI:
 else:
     logger.error("MONGO_URI environment variable not set. MongoDB services will not be available.")
 
+# --- GROQ Client ---
 groq_client = None
 if GROQ_API_KEY:
     try:
