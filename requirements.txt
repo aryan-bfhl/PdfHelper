@@ -2,19 +2,17 @@ fastapi==0.110.0
 uvicorn[standard]==0.29.0
 requests==2.31.0
 PyPDF2==3.0.1
+google-genai==1.18.0
 python-dotenv==1.0.1
-
-# LangChain + GenAI ecosystem
 pydantic==1.10.13
+
+# Langchain ecosystem — All versions must match properly
 langchain==0.1.14
 langchain-core==0.1.42
 langchain-google-genai==1.0.10
-langchain-community==0.0.21
-langchain-mongodb==0.6.2  # ✅ updated
+langchain-community==0.0.34  # ✅ Compatible with langchain 0.1.14
+langchain-mongodb==0.6.2     # ✅ Latest stable
 
-# MongoDB
+# MongoDB support
 pymongo[srv]==4.6.3
 certifi==2024.2.2
-
-# Utilities
-tqdm==4.67.1
