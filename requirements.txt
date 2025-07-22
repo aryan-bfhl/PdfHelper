@@ -4,18 +4,15 @@ requests==2.31.0
 PyPDF2==3.0.1
 python-dotenv==1.0.1
 
-# Use safe versions that don't need Rust
-pydantic==2.5.3
-pydantic-core==2.14.6  # Pre-built wheel available
-google-generativeai==0.3.2  # Older version that avoids Rust-based deps
+# Compatible with Render (no Rust)
+pydantic==1.10.13
 
-# LangChain ecosystem
+# LangChain + Google Gemini + MongoDB
+google-generativeai==0.3.2
 langchain-core==0.3.70
 langchain-google-genai==2.1.8
 langchain-community==0.0.38
 langchain-mongodb==0.1.5
-
-# MongoDB + Groq support
 pymongo[srv]==4.6.3
 certifi==2024.2.2
 groq==0.5.0
