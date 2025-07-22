@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pdf-rag-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: GEMINI_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MONGO_URI
+        sync: false
