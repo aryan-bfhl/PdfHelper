@@ -4,15 +4,17 @@ requests==2.31.0
 PyPDF2==3.0.1
 python-dotenv==1.0.1
 
-# Compatible with Render (no Rust)
+# Gemini-compatible LangChain stack (Pydantic v1 only)
 pydantic==1.10.13
+langchain==0.1.14
+langchain-core==0.1.42
+langchain-google-genai==0.0.10
+langchain-community==0.0.21
+langchain-mongodb==0.0.2
 
-# LangChain + Google Gemini + MongoDB
-google-generativeai==0.3.2
-langchain-core==0.3.70
-langchain-google-genai==2.1.8
-langchain-community==0.0.38
-langchain-mongodb==0.1.5
+# Vector DB and Tools
 pymongo[srv]==4.6.3
 certifi==2024.2.2
-groq==0.5.0
+
+# LLM + Progress
+tqdm==4.67.1
