@@ -4,17 +4,17 @@ requests==2.31.0
 PyPDF2==3.0.1
 python-dotenv==1.0.1
 
-# LangChain ecosystem (compatible with Pydantic 1)
+# LangChain + GenAI ecosystem
 pydantic==1.10.13
 langchain==0.1.14
 langchain-core==0.1.42
 langchain-google-genai==1.0.10
 langchain-community==0.0.21
-langchain-mongodb==0.0.2
+langchain-mongodb==0.6.2  # ✅ updated
 
-# Vector DB + utilities
+# MongoDB
 pymongo[srv]==4.6.3
 certifi==2024.2.2
 
-# Utils
+# Utilities
 tqdm==4.67.1
